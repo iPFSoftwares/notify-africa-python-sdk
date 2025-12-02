@@ -1,8 +1,8 @@
 from notify_africa import NotifyAfrica
 
-client = NotifyAfrica(apiToken="ntfy_db01f5be9e3ca6759876df010e3bfc93179f569522df632c66255814f6dc0b48")
+client = NotifyAfrica(apiToken="ntfy_...")
 response = client.send_single_message(
-    phoneNumber="255717563837",
+    phoneNumber="2557XXXXXXXX",
     message="Hello! How are you, this is a test message from the API",
     senderId="164"
 )
