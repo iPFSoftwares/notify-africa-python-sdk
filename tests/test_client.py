@@ -1,318 +1,323 @@
 import unittest
 from unittest.mock import Mock, patch
-from datetime import datetime, timedelta
-import tempfile
-import pandas as pd
+import json
 
-from notify_africa import NotifyAfricaClient
-from notify_africa.exceptions import AuthenticationError, ValidationError
+from notify_africa import NotifyAfrica
+from notify_africa.exceptions import NotifyAfricaException, NetworkError
+from notify_africa.models import SendSingleResponse, SendBatchResponse, MessageStatusResponse
 
 
-class TestNotifyAfricaClient(unittest.TestCase):
+class TestNotifyAfrica(unittest.TestCase):
     
     def setUp(self):
-        self.client = NotifyAfricaClient(
-            api_key="test_api_key",
-            sender_id="TEST_SENDER",
-            base_url="https://test-api.notifyafrica.com"
+        self.client = NotifyAfrica(
+            apiToken="test_api_token",
+            baseUrl="https://test-api.notify.africa"
         )
     
-    @patch('requests.Session.request')
-    def test_send_sms_success(self, mock_request):
+    @patch('requests.Session.post')
+    def test_send_single_message_success(self, mock_post):
+        """Test successful single message send"""
         # Mock successful response
         mock_response = Mock()
+        mock_response.ok = True
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "success": True,
-            "message": "SMS sent successfully",
+            "status": 200,
+            "message": "Message sent successfully",
             "data": {
-                "balance": 100,
-                "credits_spent": 1,
-                "smses": [{"id": "123"}]
+                "messageId": "165102",
+                "status": "PROCESSING"
             }
         }
-        mock_request.return_value = mock_response
+        mock_post.return_value = mock_response
         
-        response = self.client.send_sms("255712345678", "Test message")
+        response = self.client.send_single_message(
+            phoneNumber="255694192317",
+            message="Test message",
+            senderId="164"
+        )
         
-        self.assertTrue(response.success)
-        self.assertEqual(response.sms_id, "123")
-        self.assertEqual(response.credits_spent, 1)
-        self.assertEqual(response.balance, 100)
+        self.assertIsInstance(response, SendSingleResponse)
+        self.assertEqual(response.messageId, "165102")
+        self.assertEqual(response.status, "PROCESSING")
+        
+        # Verify the request was made correctly
+        mock_post.assert_called_once()
+        call_args = mock_post.call_args
+        self.assertIn("/api/v1/api/messages/send", call_args[0][0])
+        self.assertEqual(call_args[1]["json"]["phone_number"], "255694192317")
+        self.assertEqual(call_args[1]["json"]["message"], "Test message")
+        self.assertEqual(call_args[1]["json"]["sender_id"], "164")
     
-    @patch('requests.Session.request')
-    def test_send_sms_authentication_error(self, mock_request):
-        # Mock authentication error
+    @patch('requests.Session.post')
+    def test_send_single_message_api_error(self, mock_post):
+        """Test single message send with API error"""
         mock_response = Mock()
+        mock_response.ok = True
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "status": 400,
+            "message": "Invalid phone number"
+        }
+        mock_post.return_value = mock_response
+        
+        with self.assertRaises(NotifyAfricaException) as context:
+            self.client.send_single_message(
+                phoneNumber="invalid",
+                message="Test",
+                senderId="164"
+            )
+        
+        self.assertIn("Invalid phone number", str(context.exception))
+    
+    @patch('requests.Session.post')
+    def test_send_single_message_http_error(self, mock_post):
+        """Test single message send with HTTP error"""
+        mock_response = Mock()
+        mock_response.ok = False
         mock_response.status_code = 401
         mock_response.json.return_value = {
-            "success": False,
             "message": "Unauthorized"
         }
-        mock_request.return_value = mock_response
+        mock_post.return_value = mock_response
         
-        with self.assertRaises(AuthenticationError):
-            self.client.send_sms("255712345678", "Test message")
+        with self.assertRaises(NotifyAfricaException) as context:
+            self.client.send_single_message(
+                phoneNumber="255694192317",
+                message="Test",
+                senderId="164"
+            )
+        
+        self.assertEqual(context.exception.status_code, 401)
     
-    def test_invalid_phone_number(self):
-        with self.assertRaises(ValueError):
-            self.client.send_sms("invalid_phone", "Test message")
+    @patch('requests.Session.post')
+    def test_send_single_message_network_error(self, mock_post):
+        """Test single message send with network error"""
+        import requests
+        mock_post.side_effect = requests.RequestException("Network error")
+        
+        with self.assertRaises(NetworkError):
+            self.client.send_single_message(
+                phoneNumber="255694192317",
+                message="Test",
+                senderId="164"
+            )
     
-    @patch('requests.Session.request')
-    def test_send_bulk_sms(self, mock_request):
-        # Mock successful response
+    @patch('requests.Session.post')
+    def test_send_batch_messages_success(self, mock_post):
+        """Test successful batch message send"""
         mock_response = Mock()
+        mock_response.ok = True
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "success": True,
-            "message": "Bulk SMS sent",
+            "status": 200,
+            "message": "Batch messages sent successfully",
             "data": {
-                "balance": 95,
-                "credits_spent": 5,
-                "smses": [{"id": "123"}, {"id": "124"}]
+                "messageCount": 2,
+                "creditsDeducted": 2,
+                "remainingBalance": 84
             }
         }
-        mock_request.return_value = mock_response
+        mock_post.return_value = mock_response
         
-        phone_numbers = ["255712345678", "255687654321"]
-        response = self.client.send_bulk_sms(phone_numbers, "Bulk test message")
+        response = self.client.send_batch_messages(
+            phoneNumbers=["255694192317", "255743517612"],
+            message="Batch test message",
+            senderId="164"
+        )
         
-        self.assertTrue(response.success)
-        self.assertEqual(response.total_messages, 2)
-        self.assertEqual(response.successful_messages, 2)
-        self.assertEqual(response.failed_messages, 0)
+        self.assertIsInstance(response, SendBatchResponse)
+        self.assertEqual(response.messageCount, 2)
+        self.assertEqual(response.creditsDeducted, 2)
+        self.assertEqual(response.remainingBalance, 84)
+        
+        # Verify the request was made correctly
+        mock_post.assert_called_once()
+        call_args = mock_post.call_args
+        self.assertIn("/api/v1/api/messages/batch", call_args[0][0])
+        self.assertEqual(call_args[1]["json"]["phone_numbers"], ["255694192317", "255743517612"])
+        self.assertEqual(call_args[1]["json"]["message"], "Batch test message")
+        self.assertEqual(call_args[1]["json"]["sender_id"], "164")
     
-    def test_send_sms_from_excel(self):
-        # Create a temporary Excel file
-        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp_file:
-            df = pd.DataFrame({
-                'phone': ['255712345678', '255687654321'],
-                'names': ['John Doe', 'Jane Doe'],
-                'message': ['Hello John', 'Hello Jane']
-            })
-            df.to_excel(tmp_file.name, index=False)
-            
-            with patch.object(self.client, 'send_sms') as mock_send:
-                mock_send.return_value = Mock(
-                    success=True,
-                    sms_id="123",
-                    credits_spent=1
-                )
-                
-                response = self.client.send_sms_from_excel(
-                    tmp_file.name,
-                    message_template="Hello {names}!"
-                )
-                
-                self.assertTrue(response.success)
-                self.assertEqual(response.total_messages, 2)
-                self.assertEqual(mock_send.call_count, 2)
-
-    @patch('requests.Session.request')
-    def test_get_sms_history_success(self, mock_request):
-        """Test successful SMS history retrieval"""
+    @patch('requests.Session.post')
+    def test_send_batch_messages_api_error(self, mock_post):
+        """Test batch message send with API error"""
         mock_response = Mock()
+        mock_response.ok = True
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "success": True,
-            "message": "SMS history retrieved",
-            "data": [
-                {
-                    "id": "123",
-                    "recipient": "255712345678",
-                    "sms": "Test message",
-                    "status_id": "delivered",
-                    "status_description": "Message delivered",
-                    "credits": 1,
-                    "created_at": "2024-01-15T10:30:00Z",
-                    "sender_id": "TEST_SENDER"
-                },
-                {
-                    "id": "124",
-                    "recipient": "255687654321",
-                    "sms": "Another test",
-                    "status_id": "pending",
-                    "status_description": "Message pending",
-                    "credits": 1,
-                    "created_at": "2024-01-15T10:25:00Z",
-                    "sender_id": "TEST_SENDER"
-                }
-            ]
+            "status": 400,
+            "message": "Invalid sender ID"
         }
-        mock_request.return_value = mock_response
+        mock_post.return_value = mock_response
         
-        history = self.client.get_sms_history(records=10)
+        with self.assertRaises(NotifyAfricaException) as context:
+            self.client.send_batch_messages(
+                phoneNumbers=["255694192317"],
+                message="Test",
+                senderId="invalid"
+            )
         
-        self.assertTrue(history.get('success'))
-        self.assertEqual(len(history.get('data', [])), 2)
-        
-        # Check first message details
-        first_msg = history['data'][0]
-        self.assertEqual(first_msg['id'], "123")
-        self.assertEqual(first_msg['recipient'], "255712345678")
-        self.assertEqual(first_msg['status_id'], "delivered")
-
-    @patch('requests.Session.request')
-    def test_get_sms_history_empty(self, mock_request):
-        """Test SMS history when no messages exist"""
+        self.assertIn("Invalid sender ID", str(context.exception))
+    
+    @patch('requests.Session.post')
+    def test_send_batch_messages_http_error(self, mock_post):
+        """Test batch message send with HTTP error"""
         mock_response = Mock()
+        mock_response.ok = False
+        mock_response.status_code = 402
+        mock_response.json.return_value = {
+            "message": "Insufficient credits"
+        }
+        mock_post.return_value = mock_response
+        
+        with self.assertRaises(NotifyAfricaException) as context:
+            self.client.send_batch_messages(
+                phoneNumbers=["255694192317"],
+                message="Test",
+                senderId="164"
+            )
+        
+        self.assertEqual(context.exception.status_code, 402)
+    
+    @patch('requests.Session.get')
+    def test_check_message_status_success(self, mock_get):
+        """Test successful message status check"""
+        mock_response = Mock()
+        mock_response.ok = True
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "success": True,
-            "message": "No SMS history found",
-            "data": []
+            "status": 200,
+            "message": "Status retrieved successfully",
+            "data": {
+                "messageId": "165102",
+                "status": "DELIVERED",
+                "sentAt": "2024-01-15T10:30:00Z",
+                "deliveredAt": "2024-01-15T10:30:15Z"
+            }
         }
-        mock_request.return_value = mock_response
+        mock_get.return_value = mock_response
         
-        history = self.client.get_sms_history()
+        response = self.client.check_message_status(messageId="165102")
         
-        self.assertTrue(history.get('success'))
-        self.assertEqual(len(history.get('data', [])), 0)
-
-    @patch('requests.Session.request')
-    def test_get_delivery_status_found(self, mock_request):
-        """Test delivery status check when SMS is found"""
-        # Mock history response with the SMS we're looking for
+        self.assertIsInstance(response, MessageStatusResponse)
+        self.assertEqual(response.messageId, "165102")
+        self.assertEqual(response.status, "DELIVERED")
+        self.assertEqual(response.sentAt, "2024-01-15T10:30:00Z")
+        self.assertEqual(response.deliveredAt, "2024-01-15T10:30:15Z")
+        
+        # Verify the request was made correctly
+        mock_get.assert_called_once()
+        call_args = mock_get.call_args
+        self.assertIn("/api/v1/api/messages/status/165102", call_args[0][0])
+    
+    @patch('requests.Session.get')
+    def test_check_message_status_not_found(self, mock_get):
+        """Test message status check when message not found"""
         mock_response = Mock()
+        mock_response.ok = True
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "success": True,
-            "data": [
-                {
-                    "id": "123",
-                    "recipient": "255712345678",
-                    "sms": "Test message",
-                    "status_id": "delivered",
-                    "status_description": "Message delivered successfully",
-                    "credits": 1,
-                    "created_at": "2024-01-15T10:30:00Z"
-                }
-            ]
+            "status": 404,
+            "message": "Message not found"
         }
-        mock_request.return_value = mock_response
+        mock_get.return_value = mock_response
         
-        status = self.client.get_delivery_status("123")
+        with self.assertRaises(NotifyAfricaException) as context:
+            self.client.check_message_status(messageId="999999")
         
-        self.assertIsNotNone(status)
-        self.assertEqual(status.sms_id, "123")
-        self.assertEqual(status.recipient, "255712345678")
-        self.assertEqual(status.status, "delivered")
-        self.assertEqual(status.status_description, "Message delivered successfully")
-        self.assertEqual(status.credits, 1)
-
-    @patch('requests.Session.request')
-    def test_get_delivery_status_not_found(self, mock_request):
-        """Test delivery status check when SMS is not found"""
-        # Mock history response without the SMS we're looking for
+        self.assertIn("Message not found", str(context.exception))
+    
+    @patch('requests.Session.get')
+    def test_check_message_status_http_error(self, mock_get):
+        """Test message status check with HTTP error"""
         mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "success": True,
-            "data": [
-                {
-                    "id": "456",
-                    "recipient": "255687654321",
-                    "status_id": "pending"
-                }
-            ]
-        }
-        mock_request.return_value = mock_response
-        
-        status = self.client.get_delivery_status("123")
-        
-        self.assertIsNone(status)
-
-    @patch('requests.Session.request')
-    def test_get_delivery_status_api_error(self, mock_request):
-        """Test delivery status check when API returns error"""
-        mock_response = Mock()
+        mock_response.ok = False
         mock_response.status_code = 500
         mock_response.json.return_value = {
-            "success": False,
             "message": "Internal server error"
         }
-        mock_request.return_value = mock_response
+        mock_get.return_value = mock_response
         
-        # Should handle the exception gracefully and return None
-        status = self.client.get_delivery_status("123")
+        with self.assertRaises(NotifyAfricaException) as context:
+            self.client.check_message_status(messageId="165102")
         
-        self.assertIsNone(status)
-
-    @patch('requests.Session.request')
-    def test_get_sms_history_authentication_error(self, mock_request):
-        """Test SMS history with authentication error"""
+        self.assertEqual(context.exception.status_code, 500)
+    
+    @patch('requests.Session.get')
+    def test_check_message_status_network_error(self, mock_get):
+        """Test message status check with network error"""
+        import requests
+        mock_get.side_effect = requests.RequestException("Network error")
+        
+        with self.assertRaises(NetworkError):
+            self.client.check_message_status(messageId="165102")
+    
+    @patch('requests.Session.get')
+    def test_check_message_status_null_timestamps(self, mock_get):
+        """Test message status with null timestamps"""
         mock_response = Mock()
-        mock_response.status_code = 401
-        mock_response.json.return_value = {
-            "success": False,
-            "message": "Unauthorized"
-        }
-        mock_request.return_value = mock_response
-        
-        with self.assertRaises(AuthenticationError):
-            self.client.get_sms_history()
-
-    @patch('requests.Session.request') 
-    def test_get_sms_history_with_custom_records(self, mock_request):
-        """Test SMS history with custom record count"""
-        mock_response = Mock()
+        mock_response.ok = True
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "success": True,
-            "data": [{"id": f"{i}"} for i in range(100)]  # 100 mock records
+            "status": 200,
+            "message": "Status retrieved",
+            "data": {
+                "messageId": "165102",
+                "status": "PROCESSING",
+                "sentAt": None,
+                "deliveredAt": None
+            }
         }
-        mock_request.return_value = mock_response
+        mock_get.return_value = mock_response
         
-        history = self.client.get_sms_history(records=100)
+        response = self.client.check_message_status(messageId="165102")
         
-        # Verify the correct endpoint was called
-        mock_request.assert_called_once()
-        args, kwargs = mock_request.call_args
-        self.assertIn("/smses/history/records/100", args[1])
-        
-        self.assertEqual(len(history.get('data', [])), 100)
-
-    def test_sms_history_data_structure(self):
-        """Test that SMS history data has expected structure"""
-        # This would be an integration test in a real scenario
-        # Here we're testing the expected data structure
-        expected_fields = [
-            'id', 'recipient', 'sms', 'status_id', 
-            'status_description', 'credits', 'created_at', 'sender_id'
-        ]
-        
-        sample_message = {
-            "id": "123",
-            "recipient": "255712345678", 
-            "sms": "Test message",
-            "status_id": "delivered",
-            "status_description": "Message delivered",
-            "credits": 1,
-            "created_at": "2024-01-15T10:30:00Z",
-            "sender_id": "TEST_SENDER"
-        }
-        
-        # Verify all expected fields are present
-        for field in expected_fields:
-            self.assertIn(field, sample_message)
-
-    def test_delivery_status_model(self):
-        """Test DeliveryStatus model creation"""
-        from notify_africa.models import DeliveryStatus
-        
-        status = DeliveryStatus(
-            sms_id="123",
-            recipient="255712345678",
-            status="delivered", 
-            status_description="Message delivered successfully",
-            credits=1
+        self.assertEqual(response.messageId, "165102")
+        self.assertEqual(response.status, "PROCESSING")
+        self.assertIsNone(response.sentAt)
+        self.assertIsNone(response.deliveredAt)
+    
+    def test_constructor_with_default_base_url(self):
+        """Test constructor with default base URL"""
+        client = NotifyAfrica(apiToken="test_token")
+        self.assertEqual(client.baseUrl, "https://api.notify.africa")
+        self.assertEqual(client.apiToken, "test_token")
+    
+    def test_constructor_with_custom_base_url(self):
+        """Test constructor with custom base URL"""
+        client = NotifyAfrica(
+            apiToken="test_token",
+            baseUrl="https://custom-api.notify.africa"
         )
+        self.assertEqual(client.baseUrl, "https://custom-api.notify.africa")
+    
+    def test_constructor_removes_trailing_slash(self):
+        """Test constructor removes trailing slash from base URL"""
+        client = NotifyAfrica(
+            apiToken="test_token",
+            baseUrl="https://api.notify.africa/"
+        )
+        self.assertEqual(client.baseUrl, "https://api.notify.africa")
+    
+    @patch('requests.Session.post')
+    def test_send_single_message_json_decode_error(self, mock_post):
+        """Test single message send with invalid JSON response"""
+        mock_response = Mock()
+        mock_response.ok = False
+        mock_response.status_code = 500
+        mock_response.json.side_effect = json.JSONDecodeError("Invalid JSON", "", 0)
+        mock_post.return_value = mock_response
         
-        self.assertEqual(status.sms_id, "123")
-        self.assertEqual(status.recipient, "255712345678")
-        self.assertEqual(status.status, "delivered")
-        self.assertEqual(status.status_description, "Message delivered successfully")
-        self.assertEqual(status.credits, 1)
+        with self.assertRaises(NotifyAfricaException) as context:
+            self.client.send_single_message(
+                phoneNumber="255694192317",
+                message="Test",
+                senderId="164"
+            )
+        
+        self.assertEqual(context.exception.status_code, 500)
 
 
 if __name__ == '__main__':
