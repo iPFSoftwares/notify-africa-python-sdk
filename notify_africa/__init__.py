@@ -8,7 +8,14 @@ __version__ = "1.0.0"
 __author__ = "Notify Africa"
 __email__ = "support@notifyafrica.com"
 
-from .client import NotifyAfricaClient
+from .client import NotifyAfrica
+from .models import (
+    SendSingleRequest,
+    SendSingleResponse,
+    SendBatchRequest,
+    SendBatchResponse,
+    MessageStatusResponse
+)
 from .exceptions import (
     NotifyAfricaException,
     AuthenticationError,
@@ -18,7 +25,12 @@ from .exceptions import (
 )
 
 __all__ = [
-    'NotifyAfricaClient',
+    'NotifyAfrica',
+    'SendSingleRequest',
+    'SendSingleResponse',
+    'SendBatchRequest',
+    'SendBatchResponse',
+    'MessageStatusResponse',
     'NotifyAfricaException',
     'AuthenticationError',
     'ValidationError',

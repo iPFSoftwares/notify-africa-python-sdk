@@ -3,108 +3,70 @@
 Example usage of Notify Africa SMS SDK
 
 This script demonstrates all the key features of the SDK.
+Matches the Node.js SDK structure.
 """
 
 import os
-from datetime import datetime, timedelta
-from notify_africa import NotifyAfricaClient
+from notify_africa import NotifyAfrica
 from notify_africa.exceptions import (
-    AuthenticationError,
-    ValidationError,
-    InsufficientCreditsError,
+    NotifyAfricaException,
     NetworkError
 )
 
 
 def main():
-    # Initialize the client
-    client = NotifyAfricaClient(
-        api_key=os.getenv("NOTIFY_AFRICA_API_KEY"),
-        sender_id=os.getenv("NOTIFY_AFRICA_SENDER_ID")
+    # Initialize the client (matching Node.js SDK)
+    client = NotifyAfrica(
+        apiToken=os.getenv("NOTIFY_AFRICA_API_TOKEN", os.getenv("NOTIFY_AFRICA_API_KEY"))
     )
     
     try:
-        # Example 1: Send single SMS
+        # Example 1: Send single SMS (matching Node.js SDK)
         print("1. Sending single SMS...")
-        response = client.send_sms(
-            phone_number="255689737839",
-            message="Hello from Notify Africa Python SDK!"
+        response = client.send_single_message(
+            phoneNumber="255694192317",
+            message="Hello from API Management endpoint!",
+            senderId="164"
         )
-        print(f"   Success: {response.success}")
-        print(f"   Message: {response.message}")
-        print(f"   SMS ID: {response.sms_id}")
-        print(f"   Credits spent: {response.credits_spent}")
-        print(f"   Balance: {response.balance}")
+        print(f"   Message ID: {response.messageId}")
+        print(f"   Status: {response.status}")
         print()
         
-        # Example 2: Send bulk SMS
-        print("2. Sending bulk SMS...")
+        # Example 2: Send batch SMS (matching Node.js SDK)
+        print("2. Sending batch SMS...")
         phone_numbers = [
-            "255689737839",
+            "255694192317",
             "255743517612",
         ]
-        response = client.send_bulk_sms(
-            phone_numbers=phone_numbers,
-            message="This is a bulk SMS message sent to multiple recipients."
+        response = client.send_batch_messages(
+            phoneNumbers=phone_numbers,
+            message="This is a batch SMS message sent to multiple recipients.",
+            senderId="164"
         )
-        print(f"   Success: {response.success}")
-        print(f"   Total messages: {response.total_messages}")
-        print(f"   Successful: {response.successful_messages}")
-        print(f"   Failed: {response.failed_messages}")
-        print(f"   Total credits: {response.total_credits}")
+        print(f"   Message Count: {response.messageCount}")
+        print(f"   Credits Deducted: {response.creditsDeducted}")
+        print(f"   Remaining Balance: {response.remainingBalance}")
         print()
         
-        # Example 3: Schedule SMS for future delivery
-        print("3. Scheduling SMS...")
-        schedule_time = datetime.now() + timedelta(hours=1)  # 1 hour from now
-        response = client.send_scheduled_sms(
-            phone_numbers=["255689737839"],
-            message="This is a scheduled SMS message.",
-            schedule_time=schedule_time
-        )
-        print(f"   Success: {response.success}")
-        print(f"   Scheduled for: {schedule_time}")
-        print()
-        
-        # Example 4: Get SMS history
-        print("4. Getting SMS history...")
-        history = client.get_sms_history(records=10)
-        messages = history.get('data', [])
-        print(f"   Retrieved {len(messages)} recent messages")
-        for msg in messages[:3]:  # Show first 3
-            print(f"   - ID: {msg.get('id')}, Recipient: {msg.get('recipient')}, Status: {msg.get('status_id')}")
-        print()
-        
-        # Example 5: Get sender IDs
-        print("5. Getting sender IDs...")
-        sender_ids = client.get_sender_ids()
-        print(f"   Found {len(sender_ids)} sender IDs:")
-        for sender in sender_ids:
-            print(f"   - {sender.name} (Status: {sender.status})")
-        print()
-        
-        # Example 6: Get user profile
-        print("6. Getting user profile...")
-        profile = client.get_profile()
-        user_data = profile.get('data', {})
-        print(f"   User: {user_data.get('first_name')} {user_data.get('last_name')}")
-        print(f"   Email: {user_data.get('email')}")
-        print(f"   Balance: {user_data.get('balance')} SMS credits")
-        print()
+        # Example 3: Check message status (matching Node.js SDK)
+        if response.messageCount > 0:
+            print("3. Checking message status...")
+            # Use the messageId from the first example if available
+            # In a real scenario, you'd use the messageId from send_single_message
+            # status_response = client.check_message_status("156022")
+            # print(f"   Message ID: {status_response.messageId}")
+            # print(f"   Status: {status_response.status}")
+            # print(f"   Sent At: {status_response.sentAt}")
+            # print(f"   Delivered At: {status_response.deliveredAt}")
+            print("   (Skipped - need a messageId from a previous send)")
+            print()
         
         print("✅ All examples completed successfully!")
         
-    except AuthenticationError as e:
-        print(f"❌ Authentication failed: {e}")
-        print("Please check your API key.")
-        
-    except InsufficientCreditsError as e:
-        print(f"❌ Insufficient credits: {e}")
-        print("Please recharge your account.")
-        
-    except ValidationError as e:
-        print(f"❌ Validation error: {e}")
-        print("Please check your input parameters.")
+    except NotifyAfricaException as e:
+        print(f"❌ API error: {e}")
+        if e.status_code:
+            print(f"   Status Code: {e.status_code}")
         
     except NetworkError as e:
         print(f"❌ Network error: {e}")
@@ -120,14 +82,10 @@ if __name__ == "__main__":
     print()
     
     # Check for required environment variables
-    if not os.getenv("NOTIFY_AFRICA_API_KEY"):
-        print("⚠️  Warning: NOTIFY_AFRICA_API_KEY environment variable not set.")
-        print("   Set it with: export NOTIFY_AFRICA_API_KEY='your_api_key'")
-        print()
-    
-    if not os.getenv("NOTIFY_AFRICA_SENDER_ID"):
-        print("⚠️  Warning: NOTIFY_AFRICA_SENDER_ID environment variable not set.")
-        print("   Set it with: export NOTIFY_AFRICA_SENDER_ID='YOUR_SENDER_ID'")
+    api_token = os.getenv("NOTIFY_AFRICA_API_TOKEN") or os.getenv("NOTIFY_AFRICA_API_KEY")
+    if not api_token:
+        print("⚠️  Warning: NOTIFY_AFRICA_API_TOKEN environment variable not set.")
+        print("   Set it with: export NOTIFY_AFRICA_API_TOKEN='your_api_token'")
         print()
     
     main()
