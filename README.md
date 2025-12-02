@@ -15,7 +15,7 @@ A Python SDK for integrating with Notify Africa SMS service, allowing developers
 ## Installation
 
 ```bash
-pip install notify-africa-sms
+pip install git+https://github.com/iPFSoftwares/notify-africa-python-sdk.git
 ```
 
 ## Quick Start
