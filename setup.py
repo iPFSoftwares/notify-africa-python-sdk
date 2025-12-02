@@ -14,7 +14,7 @@ setup(
     description="Python SDK for Notify Africa SMS API",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/Godie360/Notify-Africa-Python-SDK",
+    url="https://github.com/iPFSoftwares/notify-africa-python-sdk",
     packages=find_packages(),
     install_requires=[
         "requests>=2.25.0",
